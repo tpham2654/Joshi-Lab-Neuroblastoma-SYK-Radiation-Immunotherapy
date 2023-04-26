@@ -1,0 +1,72 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+library(DESeq2)
+library(beeswarm)
+library(apeglm)
+library(ggplot2)
+```
+Load in all data:
+```{r}
+all_sample_info <- read.csv("./macrophage_SYK_WT_vs_KO_sample_info.csv", row.names = 1, sep = ",")
+
+count_df <- as.matrix(read.csv2("./macrophage_SYK_WT_vs_KO_expression_raw_salmon_mouse_gene_names.csv",
+                      as.is = FALSE, sep = ",", row.names = 1,
+                      header = 1))
+all_sample_info$exp_group_name = as.factor(all_sample_info$group_name)
+
+
+```
+
+```{r}
+DESeq_diffexp_only_selected_group <- function(count_df,sample_info_df,factors_to_compare_ordered,output_file_path)
+  {
+  sample_info_df_to_use = sample_info_df[sample_info_df$exp_group_name %in% factors_to_compare_ordered,]
+  sample_info_df_to_use$exp_group_name = factor(x = sample_info_df_to_use$exp_group_name, levels = factors_to_compare_ordered)
+  sample_group_names = levels(sample_info_df_to_use$exp_group_name)
+  count_df_to_use <- count_df[,rownames(sample_info_df_to_use)]
+
+  keep <- rowSums(count_df_to_use) >= 10
+  count_df_to_use <- count_df_to_use[keep,]
+
+  keep <- rowSums(count_df_to_use > 1) >= 3
+  count_df_to_use <- count_df_to_use[keep,]
+  print(dim(count_df_to_use))
+  print(colnames(count_df_to_use))
+  print(rownames(sample_info_df_to_use))
+  de_model <- DESeqDataSetFromMatrix(countData = count_df_to_use,
+                                 colData = sample_info_df_to_use,
+                                 design = ~ exp_group_name)
+  rld <- rlog(de_model)
+  plotPCA(rld, intgroup="exp_group_name")
+  de_res <- DESeq(de_model)
+  plotDispEsts(de_res)
+  plotMA(de_res, ylim = c(-10, 10))
+  resultNames_table <- resultsNames(de_res)
+  #return(resultNames_table)
+  print(paste("exp_group_name",sample_group_names[1],"vs",sample_group_names[2],sep="_"))
+  shrunk_int <- lfcShrink(de_res,
+                           coef = paste("exp_group_name",sample_group_names[2],"vs",sample_group_names[1],sep="_"),
+                           type = "apeglm")
+
+  plotMA(shrunk_int, ylim = c(-10, 10))
+  write.csv(shrunk_int, output_file_path)
+  return(list(rld=rld,de_res=de_res,final_result_shrunk_int=shrunk_int,resultNames_table=resultNames_table))
+  }
+```
+
+
+```{r}
+macrophages_SYK_WT_vs_KO_results_lst = DESeq_diffexp_only_selected_group(count_df,all_sample_info,c('macrophages_SYK_WT','macrophages_SYK_KO'),"../diff_exp_results/macrophages_SYK_WT_vs_KO_diff_expression.csv")
+```
+
+```{r}
+plotPCA(macrophages_SYK_WT_vs_KO_results_lst$rld, intgroup="exp_group_name")
+```

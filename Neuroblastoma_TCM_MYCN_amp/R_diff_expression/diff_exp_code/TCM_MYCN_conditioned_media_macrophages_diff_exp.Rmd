@@ -1,0 +1,176 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+library(DESeq2)
+library(beeswarm)
+library(apeglm)
+library(ggplot2)
+```
+Load in all data:
+
+
+
+```{r}
+
+groups_to_keep = c("NS","MYCN amp media","MYCN amp media + R788")
+all_sample_info <- read.csv("TCM_conditioned_media_sample_info.csv", row.names = 1, sep = ",")
+all_sample_info = subset(all_sample_info,treatment %in% groups_to_keep) 
+count_df <- as.matrix(read.csv2("TCM_conditioned_media_raw_count_salmon_mouse_genes_collapsed.csv",
+                      as.is = FALSE, sep = ",", row.names = 1,
+                      header = 1))
+
+
+
+all_sample_info$exp_group_name = as.factor(all_sample_info$treatment)
+count_df = count_df[,rownames(all_sample_info)]
+
+```
+
+```{r}
+
+
+
+DESeq_diffexp_only_selected_group <- function(count_df,sample_info_df,factors_to_compare_ordered,output_file_path)
+  {
+  sample_info_df_to_use = sample_info_df[sample_info_df$exp_group_name %in% factors_to_compare_ordered,]
+  sample_info_df_to_use$exp_group_name = factor(x = sample_info_df_to_use$exp_group_name, levels = factors_to_compare_ordered)
+  sample_group_names = levels(sample_info_df_to_use$exp_group_name)
+  count_df_to_use <- count_df[,rownames(sample_info_df_to_use)]
+
+  keep <- rowSums(count_df_to_use) >= 10
+  count_df_to_use <- count_df_to_use[keep,]
+
+  keep <- rowSums(count_df_to_use > 1) >= 3
+  count_df_to_use <- count_df_to_use[keep,]
+  print(dim(count_df_to_use))
+  print(colnames(count_df_to_use))
+  print(rownames(sample_info_df_to_use))
+  de_model <- DESeqDataSetFromMatrix(countData = count_df_to_use,
+                                 colData = sample_info_df_to_use,
+                                 design = ~ exp_group_name)
+  rld <- rlog(de_model)
+  plotPCA(rld, intgroup="exp_group_name")
+  de_res <- DESeq(de_model)
+  plotDispEsts(de_res)
+  plotMA(de_res, ylim = c(-10, 10))
+  resultNames_table <- resultsNames(de_res)
+  #return(resultNames_table)
+  #print(paste("exp_group_name",sample_group_names[1],"vs",sample_group_names[2],sep="_"))
+  print(resultNames_table)
+  
+  coeff_to_use = paste("exp_group_name",convert_name_to_coeff_name(sample_group_names[2]),"vs",convert_name_to_coeff_name(sample_group_names[1]),sep="_")
+  #coeff_to_use = gsub(" ",".",coeff_to_use)
+  #coeff_to_use = gsub("_",".",coeff_to_use)
+  print(coeff_to_use)
+  shrunk_int <- lfcShrink(de_res,
+                           coef = coeff_to_use,
+                           type = "apeglm")
+
+  plotMA(shrunk_int, ylim = c(-10, 10))
+  write.csv(shrunk_int, output_file_path)
+  return(list(rld=rld,de_res=de_res,final_result_shrunk_int=shrunk_int,resultNames_table=resultNames_table))
+  }
+```
+
+
+
+
+
+
+```{r}
+DESeq_diffexp_multi_group <- function(count_df,sample_info_df,ref_group)
+  {
+  keep <- rowSums(count_df) >= 10
+  count_df_to_use <- count_df[keep,]
+  
+  #exp_group_name = 
+  #sample_info_df_to_use$exp_group_name = sample_info_df_to_use$group_name
+  sample_info_df$exp_group_name = relevel(sample_info_df$exp_group_name,ref_group)
+  de_model <- DESeqDataSetFromMatrix(countData = count_df_to_use,
+                                 colData = sample_info_df,
+                                 design = ~ exp_group_name)
+  
+  de_res <- DESeq(de_model)
+  
+  #de_res$condition <- relevel(de_res$exp_group_name, ref = ref_group)
+  #results(dds, contrast=c("group", "IB", "IA"))
+  return(de_res)
+}
+
+
+
+```
+
+```{r}
+all_groups_DEseq_result = DESeq_diffexp_multi_group(count_df,all_sample_info,"NS")
+resultsNames(all_groups_DEseq_result)
+```
+
+```{r}
+plotDispEsts(all_groups_DEseq_result)
+  
+```
+
+
+```{r}
+plotMA(all_groups_DEseq_result, ylim = c(-10, 10))
+```
+
+
+```{r}
+base_diff_exp_result_folder = "../diff_exp_results"
+```
+
+
+```{r}
+NS_vs_MYCN_amp_media_table = results(all_groups_DEseq_result, contrast=c("exp_group_name","MYCN amp media","NS"))
+NS_vs_MYCN_amp_media_shrunk_int <- lfcShrink(all_groups_DEseq_result,
+                           coef = "exp_group_name_MYCN.amp.media_vs_NS" ,
+                           type = "apeglm")
+
+write.csv(NS_vs_MYCN_amp_media_shrunk_int, paste(base_diff_exp_result_folder,"NS_vs_MYCN_amp_all_lfcshrunk.csv",sep="/"))
+NS_vs_MYCN_amp_media_shrunk_int
+```
+
+```{r}
+NS_vs_MYCN_amp_media_R788_table = results(all_groups_DEseq_result, contrast=c("exp_group_name","MYCN amp media + R788","NS"))
+NS_vs_MYCN_amp_media_R788_shrunk_int <- lfcShrink(all_groups_DEseq_result,
+                           coef = "exp_group_name_MYCN.amp.media...R788_vs_NS" ,
+                           type = "apeglm")
+
+write.csv(NS_vs_MYCN_amp_media_R788_shrunk_int, paste(base_diff_exp_result_folder,"NS_vs_MYCN_amp_R788_all_lfcshrunk.csv",sep="/"))
+NS_vs_MYCN_amp_media_R788_shrunk_int
+```
+
+
+```{r}
+all_groups_DEseq_result_MYCN_amp_ref = all_groups_DEseq_result
+all_groups_DEseq_result_MYCN_amp_ref$exp_group_name = relevel(all_groups_DEseq_result_MYCN_amp_ref$exp_group_name, ref = "MYCN amp media")
+all_groups_DEseq_result_MYCN_amp_ref <- nbinomWaldTest(all_groups_DEseq_result_MYCN_amp_ref)
+MYCN_amp_vs_MYCN_amp_R788_table = results(all_groups_DEseq_result_MYCN_amp_ref, contrast=c("exp_group_name","MYCN amp media + R788","MYCN amp media"))
+MYCN_amp_vs_MYCN_amp_R788_shrunk_int <- lfcShrink(all_groups_DEseq_result_MYCN_amp_ref,
+                           coef = "exp_group_name_MYCN.amp.media...R788_vs_MYCN.amp.media" ,
+                           type = "apeglm")
+write.csv(MYCN_amp_vs_MYCN_amp_R788_shrunk_int, paste(base_diff_exp_result_folder,"MYCN_amp_vs_MYCN_amp_R788_all_lfcshrunk.csv",sep="/"))
+```
+```{r}
+plotDispEsts(all_groups_DEseq_result_MYCN_amp_ref)
+```
+```{r}
+plotMA(all_groups_DEseq_result_MYCN_amp_ref, ylim = c(-10, 10))
+
+```
+
+
+
+
+
+
+

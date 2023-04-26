@@ -1,0 +1,111 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+library(DESeq2)
+library(beeswarm)
+library(apeglm)
+library(ggplot2)
+```
+Load in all data:
+```{r}
+all_sample_info <- read.csv("../data/R788_radiation_sample_info.csv", row.names = 1, sep = ",")
+
+count_df <- as.matrix(read.csv2("../data/R788_radiation_salmon_raw_counts_mouse_genes.csv",
+                      as.is = FALSE, sep = ",", row.names = 1,
+                      header = 1))
+all_sample_info$exp_group_name = as.factor(all_sample_info$group_name)
+
+
+#only_original_sample_info = all_sample_info[all_sample_info$was_in_original_attempt == 'True',]
+#only_2_vs_2_tumor_heatmap = all_sample_info[all_sample_info$include_in_final_heatmap == TRUE,]
+```
+
+```{r}
+#ref_group = "Vehicle"
+#sample_info_df_to_use = all_sample_info
+#count_df_to_use = count_df
+DESeq_diffexp_multi_group <- function(count_df,sample_info_df,ref_group)
+  {
+  keep <- rowSums(count_df) >= 10
+  count_df_to_use <- count_df[keep,]
+  
+  #exp_group_name = 
+  #sample_info_df_to_use$exp_group_name = sample_info_df_to_use$group_name
+  sample_info_df$exp_group_name = relevel(sample_info_df$exp_group_name,ref_group)
+  de_model <- DESeqDataSetFromMatrix(countData = count_df_to_use,
+                                 colData = sample_info_df,
+                                 design = ~ exp_group_name)
+  
+  de_res <- DESeq(de_model)
+  
+  #de_res$condition <- relevel(de_res$exp_group_name, ref = ref_group)
+  #results(dds, contrast=c("group", "IB", "IA"))
+  return(de_res)
+}
+
+all_group_comparisons = DESeq_diffexp_multi_group(count_df,all_sample_info,"Vehicle")
+
+```
+```{r}
+plotDispEsts(all_group_comparisons)
+plotMA(all_group_comparisons, ylim = c(-10, 10))
+```
+
+```{r}
+resultsNames(all_group_comparisons)
+results_base_path = "../results/R_DESeq"
+```
+
+
+```{r}
+Vehicle_vs_R788PDL1_table = results(all_group_comparisons, contrast=c("exp_group_name","Vehicle","R788PDL1"))
+Vehicle_vs_R788PDL1_shrunk_int <- lfcShrink(all_group_comparisons,
+                           coef = "exp_group_name_R788PDL1_vs_Vehicle",
+                           type = "apeglm")
+
+write.csv(Vehicle_vs_R788PDL1_shrunk_int, paste(results_base_path,"Vehicle_vs_R788PDL1_lfcShrunk_all.csv",sep="/"))
+Vehicle_vs_R788PDL1_shrunk_int
+```
+
+```{r}
+Vehicle_vs_RadiationR788PDL1_table = results(all_group_comparisons, contrast=c("exp_group_name","Vehicle","RadiationR788PDL1"))
+Vehicle_vs_RadiationR788PDL1_shrunk_int <- lfcShrink(all_group_comparisons,
+                           coef = "exp_group_name_RadiationR788PDL1_vs_Vehicle",
+                           type = "apeglm")
+
+write.csv(Vehicle_vs_RadiationR788PDL1_shrunk_int, paste(results_base_path,"Vehicle_vs_RadiationR788PDL1_lfcShrunk_all.csv",sep="/"))
+Vehicle_vs_RadiationR788PDL1_shrunk_int
+```
+
+
+```{r}
+all_group_comparisons_R788PDL1_ref = all_group_comparisons
+
+all_group_comparisons_R788PDL1_ref$exp_group_name = relevel(all_group_comparisons_R788PDL1_ref$exp_group_name, ref = "R788PDL1")
+all_group_comparisons_R788PDL1_ref <- nbinomWaldTest(all_group_comparisons_R788PDL1_ref)
+
+R788PDL1_vs_Radiation_R788PDL1_table = results(all_group_comparisons_R788PDL1_ref, contrast=c("exp_group_name","RadiationR788PDL1","R788PDL1"))
+R788PDL1_vs_Radiation_R788PDL1_shrunk_int <- lfcShrink(all_group_comparisons_R788PDL1_ref,
+                           coef = paste("exp_group_name","RadiationR788PDL1","vs","R788PDL1",sep="_"),
+                           type = "apeglm")
+
+write.csv(R788PDL1_vs_Radiation_R788PDL1_shrunk_int, paste(results_base_path,"R788PDL1_vs_RadiationR788PDL1_lfcShrunk_all.csv",sep="/"))
+R788PDL1_vs_Radiation_R788PDL1_shrunk_int
+```
+
+```{r}
+resultsNames(all_group_comparisons_R788PDL1_ref)
+```
+
+
+```{r}
+plotDispEsts(all_group_comparisons_R788PDL1_ref)
+plotMA(all_group_comparisons_R788PDL1_ref, ylim = c(-10, 10))
+```
